@@ -74,10 +74,8 @@ public class PresenceService {
         // Add user to room using thread-safe set
         roomToUsers.computeIfAbsent(roomId, k -> ConcurrentHashMap.newKeySet()).add(userId);
 
-        // Broadcast system message to room using factory method
-        broadcastToRoom(roomId, WebSocketMessage.systemMessage(
-                username + " joined the room",
-                roomId));
+        // Broadcast current room presence to all users in the room
+        broadcastRoomPresence(roomId);
 
         log.info("User {} successfully joined room {}. Room now has {} users",
                 username, roomId, roomToUsers.get(roomId).size());
@@ -113,10 +111,8 @@ public class PresenceService {
             }
         }
 
-        // Broadcast system message using factory method
-        broadcastToRoom(roomId, WebSocketMessage.systemMessage(
-                user.getUsername() + " left the room",
-                roomId));
+        // Broadcast updated presence to remaining users
+        broadcastRoomPresence(roomId);
 
         // Update user state using Lombok methods
         user.setCurrentRoom(null);
@@ -203,6 +199,22 @@ public class PresenceService {
         userIdToUser.remove(user.getUserId());
 
         log.info("User {} fully disconnected and removed", user.getUsername());
+    }
+
+    /**
+     * Broadcast current room presence to all members of the room
+     *
+     * @param roomId Room identifier
+     */
+    private void broadcastRoomPresence(String roomId) {
+        try {
+            RoomPresenceDTO presence = getRoomPresence(roomId);
+            WebSocketMessage message = WebSocketMessage.roomPresenceResponse(roomId, presence);
+            broadcastToRoom(roomId, message);
+            log.info("Broadcasted presence update for room: {} ({} users)", roomId, presence.getUserCount());
+        } catch (Exception e) {
+            log.error("Failed to broadcast presence update for room {}: {}", roomId, e.getMessage());
+        }
     }
 
     /**
