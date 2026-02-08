@@ -10,9 +10,7 @@ import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 /**
- * WebSocket event listener
- * Handles connection and disconnection events
- * Using Lombok for dependency injection and logging
+ * WebSocket event listener that reacts to connect and disconnect lifecycle events.
  */
 @Slf4j
 @Component
@@ -21,42 +19,30 @@ public class WebSocketEventListener {
 
     private final PresenceService presenceService;
 
-    /**
-     * Handle new WebSocket connection
-     * 
-     * @param event Session connected event
-     */
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
         String sessionId = headerAccessor.getSessionId();
 
-        log.info("🔗 New WebSocket connection established. Session ID: {}", sessionId);
-        log.debug("Connection details - User: {}, Remote Address: {}",
+        log.info("[CONNECT] WebSocket connection established. Session ID: {}", sessionId);
+        log.debug("Connection details - User: {}, Attributes: {}",
                 headerAccessor.getUser(),
                 headerAccessor.getSessionAttributes());
     }
 
-    /**
-     * Handle WebSocket disconnection
-     * Automatically cleans up user data
-     * 
-     * @param event Session disconnect event
-     */
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
         StompHeaderAccessor headerAccessor = StompHeaderAccessor.wrap(event.getMessage());
         String sessionId = headerAccessor.getSessionId();
 
-        log.info("🔌 WebSocket connection closed. Session ID: {}", sessionId);
+        log.info("[DISCONNECT] WebSocket connection closed. Session ID: {}", sessionId);
         log.debug("Disconnect details - Close status: {}", event.getCloseStatus());
 
         try {
-            // Handle graceful disconnect
             presenceService.handleDisconnect(sessionId);
-            log.info("✅ Successfully cleaned up session: {}", sessionId);
+            log.info("[DISCONNECT] Successfully cleaned up session: {}", sessionId);
         } catch (Exception e) {
-            log.error("❌ Error handling disconnect for session {}: {}", sessionId, e.getMessage());
+            log.error("[DISCONNECT] Error handling disconnect for session {}: {}", sessionId, e.getMessage());
         }
     }
 }

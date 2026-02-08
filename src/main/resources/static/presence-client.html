@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Presence & Room Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b1021;
+            --panel: #111933;
+            --accent: #4ad7d1;
+            --accent-2: #ffb347;
+            --text: #f5f7ff;
+            --muted: #8ca0c2;
+            --danger: #ff6b6b;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+            background: radial-gradient(circle at 20% 20%, rgba(74, 215, 209, 0.12), transparent 30%),
+                        radial-gradient(circle at 80% 0%, rgba(255, 179, 71, 0.15), transparent 30%),
+                        var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 32px;
+        }
+        .shell {
+            width: min(1100px, 100%);
+            background: linear-gradient(145deg, rgba(17, 25, 51, 0.92), rgba(17, 25, 51, 0.8));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.45);
+            overflow: hidden;
+        }
+        header {
+            padding: 20px 28px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: 0.5px;
+        }
+        header .badge {
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(74, 215, 209, 0.16);
+            color: var(--accent);
+            border: 1px solid rgba(74, 215, 209, 0.35);
+            font-size: 12px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        }
+        main {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 0;
+        }
+        .panel {
+            padding: 24px;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .panel h2 {
+            font-size: 15px;
+            letter-spacing: 0.3px;
+            margin: 0 0 12px;
+            color: var(--muted);
+        }
+        .field {
+            margin-bottom: 14px;
+        }
+        label {
+            display: block;
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 6px;
+        }
+        input {
+            width: 100%;
+            padding: 12px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text);
+            outline: none;
+        }
+        input:focus {
+            border-color: rgba(74, 215, 209, 0.6);
+            box-shadow: 0 0 0 3px rgba(74, 215, 209, 0.12);
+        }
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 8px;
+        }
+        button {
+            border: none;
+            border-radius: 12px;
+            padding: 12px 10px;
+            color: #0b0f1d;
+            font-weight: 600;
+            background: var(--accent);
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.2s ease, opacity 0.2s;
+        }
+        button.secondary { background: var(--accent-2); }
+        button.danger { background: var(--danger); color: #fff; }
+        button.flat {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        button:active { transform: translateY(1px); }
+        button:disabled { opacity: 0.55; cursor: not-allowed; }
+        .log {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 20px;
+            min-height: 520px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .log-entry small { color: var(--muted); display: block; margin-top: 4px; }
+        .status-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .pill {
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <header>
+        <h1>Real-Time Presence & Rooms</h1>
+        <div class="badge">STOMP over WebSocket</div>
+    </header>
+    <main>
+        <section class="panel">
+            <h2>Connection</h2>
+            <div class="field">
+                <label for="userId">User ID</label>
+                <input id="userId" placeholder="u-123" value="user-1">
+            </div>
+            <div class="field">
+                <label for="username">Display Name</label>
+                <input id="username" placeholder="Alice" value="Alice">
+            </div>
+            <div class="field">
+                <label for="roomId">Room ID</label>
+                <input id="roomId" placeholder="general" value="general">
+            </div>
+            <div class="actions">
+                <button id="connectBtn">Connect</button>
+                <button id="disconnectBtn" class="danger" disabled>Disconnect</button>
+                <button id="joinBtn" class="secondary" disabled>Join Room</button>
+                <button id="leaveBtn" class="flat" disabled>Leave Room</button>
+            </div>
+
+            <h2 style="margin-top:24px;">Presence Actions</h2>
+            <div class="actions">
+                <button id="pingBtn" class="flat" disabled>Heartbeat</button>
+                <button id="roomPresenceBtn" class="flat" disabled>Room Presence</button>
+                <button id="onlineBtn" class="flat" disabled>Online Users</button>
+                <button id="clearLogBtn" class="flat">Clear Log</button>
+            </div>
+
+            <div class="status-row" id="statusRow">
+                <span class="pill" id="connState">Disconnected</span>
+                <span class="pill" id="roomState">Room: -</span>
+            </div>
+        </section>
+        <section class="log" id="log"></section>
+    </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/umd/stomp.min.js"></script>
+<script>
+    let stompClient = null;
+    let activeRoomSubscription = null;
+
+    const els = {
+        userId: document.getElementById('userId'),
+        username: document.getElementById('username'),
+        roomId: document.getElementById('roomId'),
+        connectBtn: document.getElementById('connectBtn'),
+        disconnectBtn: document.getElementById('disconnectBtn'),
+        joinBtn: document.getElementById('joinBtn'),
+        leaveBtn: document.getElementById('leaveBtn'),
+        pingBtn: document.getElementById('pingBtn'),
+        roomPresenceBtn: document.getElementById('roomPresenceBtn'),
+        onlineBtn: document.getElementById('onlineBtn'),
+        clearLogBtn: document.getElementById('clearLogBtn'),
+        log: document.getElementById('log'),
+        connState: document.getElementById('connState'),
+        roomState: document.getElementById('roomState')
+    };
+
+    function setConnected(connected) {
+        els.connectBtn.disabled = connected;
+        els.disconnectBtn.disabled = !connected;
+        els.joinBtn.disabled = !connected;
+        els.leaveBtn.disabled = !connected;
+        els.pingBtn.disabled = !connected;
+        els.roomPresenceBtn.disabled = !connected;
+        els.onlineBtn.disabled = !connected;
+        els.connState.textContent = connected ? "Connected" : "Disconnected";
+    }
+
+    function setRoom(roomId) {
+        els.roomState.textContent = roomId ? `Room: ${roomId}` : "Room: -";
+    }
+
+    function logMessage(label, payload) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'log-entry';
+        const now = new Date().toLocaleTimeString();
+        wrapper.innerHTML = `<strong>${label}</strong><small>${now}</small><pre style="margin:6px 0 0; white-space:pre-wrap;">${payload}</pre>`;
+        els.log.prepend(wrapper);
+    }
+
+    function connect() {
+        const socket = new SockJS('/ws-presence');
+        stompClient = Stomp.over(socket);
+        stompClient.debug = null; // silence noisy logs
+        stompClient.connect({}, () => {
+            setConnected(true);
+            logMessage("CONNECTED", "WebSocket handshake complete");
+            subscribeBaseQueues();
+        }, (error) => {
+            logMessage("ERROR", error);
+            setConnected(false);
+        });
+    }
+
+    function disconnect() {
+        if (stompClient) {
+            stompClient.disconnect(() => {
+                logMessage("DISCONNECTED", "Client disconnected");
+            });
+        }
+        setConnected(false);
+        setRoom(null);
+        if (activeRoomSubscription) {
+            activeRoomSubscription.unsubscribe();
+            activeRoomSubscription = null;
+        }
+    }
+
+    function subscribeBaseQueues() {
+        stompClient.subscribe('/user/queue/room-presence', message => {
+            logMessage("ROOM_PRESENCE", message.body);
+        });
+        stompClient.subscribe('/user/queue/online-users', message => {
+            logMessage("ONLINE_USERS", message.body);
+        });
+        stompClient.subscribe('/user/queue/system-stats', message => {
+            logMessage("SYSTEM_STATS", message.body);
+        });
+    }
+
+    function joinRoom() {
+        const payload = buildMessage("JOIN");
+        if (!payload.roomId) {
+            return logMessage("WARN", "Room ID is required to join.");
+        }
+        stompClient.send("/app/join", {}, JSON.stringify(payload));
+        setRoom(payload.roomId);
+        if (activeRoomSubscription) {
+            activeRoomSubscription.unsubscribe();
+        }
+        activeRoomSubscription = stompClient.subscribe(`/topic/room/${payload.roomId}`, message => {
+            logMessage("ROOM_BROADCAST", message.body);
+        });
+    }
+
+    function leaveRoom() {
+        stompClient.send("/app/leave", {}, JSON.stringify(buildMessage("LEAVE")));
+        setRoom(null);
+        if (activeRoomSubscription) {
+            activeRoomSubscription.unsubscribe();
+            activeRoomSubscription = null;
+        }
+    }
+
+    function ping() {
+        stompClient.send("/app/ping", {}, JSON.stringify(buildMessage("PING")));
+    }
+
+    function requestRoomPresence() {
+        stompClient.send("/app/room/presence", {}, JSON.stringify(buildMessage("ROOM_PRESENCE")));
+    }
+
+    function requestOnlineUsers() {
+        stompClient.send("/app/users/online", {}, JSON.stringify(buildMessage("ONLINE_USERS")));
+    }
+
+    function buildMessage(type) {
+        return {
+            type,
+            userId: els.userId.value.trim(),
+            username: els.username.value.trim(),
+            roomId: els.roomId.value.trim()
+        };
+    }
+
+    // Bind UI
+    els.connectBtn.onclick = connect;
+    els.disconnectBtn.onclick = disconnect;
+    els.joinBtn.onclick = joinRoom;
+    els.leaveBtn.onclick = leaveRoom;
+    els.pingBtn.onclick = ping;
+    els.roomPresenceBtn.onclick = requestRoomPresence;
+    els.onlineBtn.onclick = requestOnlineUsers;
+    els.clearLogBtn.onclick = () => els.log.innerHTML = "";
+
+    // Auto-fill slightly random ids for quick multi-tab testing
+    const randomId = Math.random().toString(36).slice(2, 7);
+    els.userId.value = `user-${randomId}`;
+    els.username.value = `User ${randomId}`;
+</script>
+</body>
+</html>
