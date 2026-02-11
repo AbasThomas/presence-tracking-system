@@ -1,6 +1,8 @@
 package com.aptech.service;
 
+import com.aptech.dto.ChatMessage;
 import com.aptech.dto.RoomPresenceDTO;
+import com.aptech.dto.RoomSummaryDTO;
 import com.aptech.dto.UserDTO;
 import com.aptech.dto.WebSocketMessage;
 import com.aptech.exception.UserNotFoundException;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Collectors;
 
 /**
@@ -33,10 +36,27 @@ public class PresenceService {
     private final UserMapper userMapper;
     private final RoomPresenceMapper roomPresenceMapper;
 
+    private static final int MAX_CHAT_HISTORY = 200;
+
     // Thread-safe maps for state management
     private final Map<String, User> sessionToUser = new ConcurrentHashMap<>();
     private final Map<String, User> userIdToUser = new ConcurrentHashMap<>();
     private final Map<String, Set<String>> roomToUsers = new ConcurrentHashMap<>();
+    private final Map<String, Deque<ChatMessage>> roomChats = new ConcurrentHashMap<>();
+
+    private void ensureRoomExists(String roomId) {
+        roomToUsers.computeIfAbsent(roomId, k -> ConcurrentHashMap.newKeySet());
+        roomChats.computeIfAbsent(roomId, k -> new ConcurrentLinkedDeque<>());
+    }
+
+    private void broadcastRooms() {
+        try {
+            messagingTemplate.convertAndSend("/topic/rooms",
+                    WebSocketMessage.roomListResponse(getRoomSummaries()));
+        } catch (Exception e) {
+            log.error("Failed to broadcast room catalog: {}", e.getMessage());
+        }
+    }
 
     /**
      * Handle user joining a room
@@ -71,11 +91,17 @@ public class PresenceService {
         sessionToUser.put(sessionId, user);
         userIdToUser.put(userId, user);
 
-        // Add user to room using thread-safe set
-        roomToUsers.computeIfAbsent(roomId, k -> ConcurrentHashMap.newKeySet()).add(userId);
+        // Ensure room container exists and register membership
+        ensureRoomExists(roomId);
+        roomToUsers.get(roomId).add(userId);
 
         // Broadcast current room presence to all users in the room
         broadcastRoomPresence(roomId);
+        broadcastRooms();
+
+        // Let room know someone joined
+        messagingTemplate.convertAndSend("/topic/room/" + roomId,
+                WebSocketMessage.systemMessage(username + " joined " + roomId, roomId));
 
         log.info("User {} successfully joined room {}. Room now has {} users",
                 username, roomId, roomToUsers.get(roomId).size());
@@ -113,6 +139,10 @@ public class PresenceService {
 
         // Broadcast updated presence to remaining users
         broadcastRoomPresence(roomId);
+        broadcastRooms();
+
+        messagingTemplate.convertAndSend("/topic/room/" + roomId,
+                WebSocketMessage.systemMessage(user.getUsername() + " left " + roomId, roomId));
 
         // Update user state using Lombok methods
         user.setCurrentRoom(null);
@@ -198,6 +228,8 @@ public class PresenceService {
         sessionToUser.remove(sessionId);
         userIdToUser.remove(user.getUserId());
 
+        broadcastRooms();
+
         log.info("User {} fully disconnected and removed", user.getUsername());
     }
 
@@ -247,6 +279,86 @@ public class PresenceService {
     }
 
     /**
+     * Handle incoming chat message and broadcast to the room.
+     */
+    public ChatMessage handleChatMessage(String sessionId, String roomId, String content) {
+        if (roomId == null || roomId.isBlank()) {
+            throw new IllegalArgumentException("RoomId is required for chat");
+        }
+        if (content == null || content.isBlank()) {
+            throw new IllegalArgumentException("Message content is required");
+        }
+        User user = sessionToUser.get(sessionId);
+        if (user == null) {
+            throw new UserNotFoundException(sessionId);
+        }
+
+        ensureRoomExists(roomId);
+
+        ChatMessage chat = ChatMessage.builder()
+                .roomId(roomId)
+                .userId(user.getUserId())
+                .username(user.getUsername())
+                .content(content)
+                .build();
+
+        Deque<ChatMessage> history = roomChats.get(roomId);
+        history.addLast(chat);
+        while (history.size() > MAX_CHAT_HISTORY) {
+            history.removeFirst();
+        }
+
+        messagingTemplate.convertAndSend("/topic/room/" + roomId,
+                WebSocketMessage.chatBroadcast(chat, roomId));
+        return chat;
+    }
+
+    /**
+     * Retrieve chat history for a room.
+     */
+    public List<ChatMessage> getChatHistory(String roomId) {
+        ensureRoomExists(roomId);
+        return new ArrayList<>(roomChats.get(roomId));
+    }
+
+    /**
+     * Create an empty room proactively.
+     */
+    public void createRoom(String roomId) {
+        ensureRoomExists(roomId);
+        broadcastRooms();
+        messagingTemplate.convertAndSend("/topic/rooms",
+                WebSocketMessage.systemMessage("Room " + roomId + " created", roomId));
+    }
+
+    /**
+     * Forward WebRTC signalling payloads to everyone in the room.
+     */
+    public void handleCallSignal(String sessionId, WebSocketMessage inbound) {
+        User user = sessionToUser.get(sessionId);
+        if (user == null) {
+            throw new UserNotFoundException(sessionId);
+        }
+
+        String roomId = Optional.ofNullable(inbound.getRoomId()).orElse(user.getCurrentRoom());
+        if (roomId == null) {
+            throw new IllegalArgumentException("RoomId is required for call signalling");
+        }
+
+        ensureRoomExists(roomId);
+
+        WebSocketMessage relay = WebSocketMessage.callSignal(
+                roomId,
+                user.getUserId(),
+                user.getUsername(),
+                inbound.getTargetUserId(),
+                inbound.getSignalType(),
+                inbound.getData());
+
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, relay);
+    }
+
+    /**
      * Get user by session ID
      * 
      * @param sessionId WebSocket session ID
@@ -266,6 +378,19 @@ public class PresenceService {
     public UserDTO getUserById(String userId) {
         User user = userIdToUser.get(userId);
         return user != null ? userMapper.toDto(user) : null;
+    }
+
+    /**
+     * Get summaries for all rooms.
+     */
+    public List<RoomSummaryDTO> getRoomSummaries() {
+        return roomToUsers.entrySet().stream()
+                .map(entry -> RoomSummaryDTO.builder()
+                        .roomId(entry.getKey())
+                        .userCount(entry.getValue().size())
+                        .build())
+                .sorted(Comparator.comparing(RoomSummaryDTO::getRoomId))
+                .collect(Collectors.toList());
     }
 
     /**

@@ -131,6 +131,59 @@ public class PresenceController {
     }
 
     /**
+     * Endpoint 6: LIST ROOMS
+     */
+    @MessageMapping("/rooms/list")
+    @SendToUser("/queue/rooms")
+    public WebSocketMessage getRooms() {
+        log.info("[ROOM_LIST] request");
+        return WebSocketMessage.roomListResponse(presenceService.getRoomSummaries());
+    }
+
+    /**
+     * Endpoint 7: CREATE ROOM
+     */
+    @MessageMapping("/room/create")
+    public void createRoom(@Valid @Payload WebSocketMessage message) {
+        log.info("[ROOM_CREATE] request for room {}", message.getRoomId());
+        presenceService.createRoom(message.getRoomId());
+    }
+
+    /**
+     * Endpoint 8: CHAT SEND
+     */
+    @MessageMapping("/chat/send")
+    public void sendChat(@Valid @Payload WebSocketMessage message,
+                         SimpMessageHeaderAccessor headerAccessor) {
+        String sessionId = headerAccessor.getSessionId();
+        log.info("[CHAT] message incoming for room {} from {}", message.getRoomId(), message.getUsername());
+        presenceService.handleChatMessage(sessionId, message.getRoomId(), message.getContent());
+    }
+
+    /**
+     * Endpoint 9: CHAT HISTORY
+     */
+    @MessageMapping("/chat/history")
+    @SendToUser("/queue/chat-history")
+    public WebSocketMessage getChatHistory(@Valid @Payload WebSocketMessage message) {
+        log.info("[CHAT_HISTORY] request for room {}", message.getRoomId());
+        return WebSocketMessage.chatHistoryResponse(
+                message.getRoomId(),
+                presenceService.getChatHistory(message.getRoomId()));
+    }
+
+    /**
+     * Endpoint 10: CALL SIGNAL
+     */
+    @MessageMapping("/call/signal")
+    public void callSignal(@Valid @Payload WebSocketMessage message,
+                           SimpMessageHeaderAccessor headerAccessor) {
+        String sessionId = headerAccessor.getSessionId();
+        log.info("[CALL_SIGNAL] {} -> {} type {}", message.getUsername(), message.getTargetUserId(), message.getSignalType());
+        presenceService.handleCallSignal(sessionId, message);
+    }
+
+    /**
      * Additional endpoint: GET SYSTEM STATS
      * Returns system statistics.
      */

@@ -35,6 +35,13 @@ public class WebSocketMessage implements Serializable {
 
     private String roomId;
 
+    private String targetUserId;
+
+    /**
+     * Optional discriminator for signalling (OFFER / ANSWER / ICE / END).
+     */
+    private String signalType;
+
     private String content;
 
     @Builder.Default
@@ -73,6 +80,62 @@ public class WebSocketMessage implements Serializable {
     public static WebSocketMessage onlineUsersResponse(Object data) {
         return WebSocketMessage.builder()
                 .type(MessageType.ONLINE_USERS)
+                .data(data)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Factory method for chat broadcasts.
+     */
+    public static WebSocketMessage chatBroadcast(Object data, String roomId) {
+        return WebSocketMessage.builder()
+                .type(MessageType.CHAT)
+                .roomId(roomId)
+                .data(data)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Factory for chat history responses.
+     */
+    public static WebSocketMessage chatHistoryResponse(String roomId, Object data) {
+        return WebSocketMessage.builder()
+                .type(MessageType.CHAT_HISTORY)
+                .roomId(roomId)
+                .data(data)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Factory for room list responses.
+     */
+    public static WebSocketMessage roomListResponse(Object data) {
+        return WebSocketMessage.builder()
+                .type(MessageType.ROOM_LIST)
+                .data(data)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Factory for call signalling payloads.
+     */
+    public static WebSocketMessage callSignal(String roomId,
+                                              String userId,
+                                              String username,
+                                              String targetUserId,
+                                              String signalType,
+                                              Object data) {
+        return WebSocketMessage.builder()
+                .type(MessageType.CALL_SIGNAL)
+                .roomId(roomId)
+                .userId(userId)
+                .username(username)
+                .targetUserId(targetUserId)
+                .signalType(signalType)
                 .data(data)
                 .timestamp(LocalDateTime.now())
                 .build();
